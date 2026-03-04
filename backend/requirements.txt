@@ -1,0 +1,10 @@
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-JWT-Extended
+psycopg2-binary
+flask-cors
+python-dotenv
+bcrypt
+reportlab
+weasyprint
