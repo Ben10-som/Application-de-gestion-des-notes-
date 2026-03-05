@@ -26,13 +26,15 @@ def create_app(config_class=Config):
             "version": "1.0.0"
         }), 200
 
-    # Enregistrement des Blueprints (à implémenter)
+    # Enregistrement des Blueprints
     from app.routes.auth import auth_bp
     from app.routes.etudiants import etudiants_bp
     from app.routes.notes import notes_bp
+    from app.routes.stats import stats_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(etudiants_bp, url_prefix='/api/etudiants')
     app.register_blueprint(notes_bp, url_prefix='/api/notes')
+    app.register_blueprint(stats_bp, url_prefix='/api/stats')
 
     return app

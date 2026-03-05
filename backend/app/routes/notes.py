@@ -7,6 +7,32 @@ from datetime import datetime
 
 notes_bp = Blueprint('notes', __name__)
 
+@notes_bp.route('/mes-enseignements', methods=['GET'])
+@jwt_required()
+def mes_enseignements():
+    """Retourne les enseignements (classe + matière) du professeur connecté"""
+    identity = get_jwt_identity()
+    claims = get_jwt()
+    if claims.get('role') != 'Professeur':
+        return jsonify({"msg": "Accès réservé aux professeurs"}), 403
+
+    prof = Professeur.query.filter_by(utilisateur_id_user=identity).first()
+    if not prof:
+        return jsonify({"msg": "Profil professeur non trouvé"}), 404
+
+    result = []
+    for ens in prof.enseignements:
+        result.append({
+            "id_enseignement": ens.idenseignement,
+            "id_classe": ens.classe_id_classe,
+            "nom_classe": ens.classe.nom_classe,
+            "id_matiere": ens.matiere_id_matiere,
+            "nom_matiere": ens.matiere.nom_matiere,
+            "coef": ens.matiere.coef,
+        })
+
+    return jsonify(result), 200
+
 @notes_bp.route('/bulletin', methods=['GET'])
 @jwt_required()
 def telecharger_bulletin():

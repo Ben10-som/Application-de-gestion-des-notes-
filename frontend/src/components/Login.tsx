@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Sparkles, ArrowRight, Loader2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Sparkles, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
 import PixelPattern from './PixelPattern';
 import api from '../api';
 
@@ -11,7 +11,9 @@ export default function Login({ onLogin }: LoginProps) {
   const [nom, setNom] = useState('');
   const [prenom, setPrenom] = useState('');
   const [motDePasse, setMotDePasse] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const [error, setError] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -123,14 +125,23 @@ export default function Login({ onLogin }: LoginProps) {
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Mot de passe</label>
-              <input 
-                type="password" 
-                required
-                value={motDePasse}
-                onChange={e => setMotDePasse(e.target.value)}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input 
+                  type={showPassword ? "text" : "password"} 
+                  required
+                  value={motDePasse}
+                  onChange={e => setMotDePasse(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none pr-10"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button 

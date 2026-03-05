@@ -58,3 +58,37 @@ def get_etudiants_par_classe(id_classe):
         "nom": e.utilisateur.nom,
         "prenom": e.utilisateur.prenom
     } for e in etudiants]), 200
+# --- CRÉATION ÉTUDIANT ---
+@etudiants_bp.route('/creer', methods=['POST'])
+@jwt_required()
+def creer_etudiant():
+    claims = get_jwt()
+    if claims.get('role') != 'Admin':
+        return jsonify({"msg": "Action réservée à l'administrateur"}), 403
+    
+    data = request.get_json()
+    nom = data.get('nom')
+    prenom = data.get('prenom')
+    matricule = data.get('matricule')
+    id_classe = data.get('id_classe')
+    password = data.get('password', 'etu123') # Default password
+
+    if not all([nom, prenom, matricule, id_classe]):
+        return jsonify({"msg": "Données manquantes"}), 400
+
+    # Create User
+    new_user = Utilisateur(nom=nom, prenom=prenom, role='Etudiant')
+    new_user.set_password(password)
+    db.session.add(new_user)
+    db.session.flush()
+
+    # Create Etudiant
+    new_etu = Etudiant(
+        matricule=matricule,
+        classe_id_classe=id_classe,
+        utilisateur_id_user=new_user.id_user
+    )
+    db.session.add(new_etu)
+    db.session.commit()
+
+    return jsonify({"msg": "Étudiant créé avec succès"}), 201
