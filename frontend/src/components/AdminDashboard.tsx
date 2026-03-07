@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Users, GraduationCap, Search, Filter, X, TrendingUp, Award, BookOpen, ChevronRight, Plus, Loader2, Check } from 'lucide-react';
+import { Layers, Users, GraduationCap, Search, Filter, X, TrendingUp, Award, BookOpen, ChevronRight, Plus, Loader2, Check, Trash2, Edit } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
@@ -8,14 +8,27 @@ import api from '../api';
 
 const COLORS = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#ddd6fe'];
 
+interface EtudiantInfo {
+  id: number;
+  matricule: string;
+  nom: string;
+  prenom: string;
+}
 interface ClasseInfo {
   id: number;
   nom: string;
   filiere: string;
+  filiere_id: number;
 }
 interface FiliereInfo {
   id: number;
   nom: string;
+}
+interface ProfesseurInfo {
+  id: number;
+  nom: string;
+  prenom: string;
+  specialite: string;
 }
 interface AdminStats {
   nb_etudiants: number;
@@ -51,33 +64,43 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'classes' | 'professors' | 'filieres'>('classes');
+  const [activeTab, setActiveTab] = useState<'classes' | 'professors' | 'filieres' | 'etudiants'>('classes');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterField, setFilterField] = useState('');
   const [selectedClasse, setSelectedClasse] = useState<ClasseDetails | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [classes, setClasses] = useState<ClasseInfo[]>([]);
   const [filieres, setFilieres] = useState<FiliereInfo[]>([]);
+  const [professeurs, setProfesseurs] = useState<ProfesseurInfo[]>([]);
+  const [etudiantsList, setEtudiantsList] = useState<EtudiantInfo[]>([]);
+  
   const [loading, setLoading] = useState(true);
 
   // Modal States
-  const [showAddModal, setShowAddModal] = useState<'classe' | 'filiere' | 'etudiant' | null>(null);
-  const [formData, setFormData] = useState({ nom: '', prenom: '', nom_classe: '', nom_filiere: '', id_filiere: '', id_classe: '', matricule: '' });
+  const [showAddModal, setShowAddModal] = useState<'classe' | 'filiere' | 'etudiant' | 'professeur' | null>(null);
+  const [showEditModal, setShowEditModal] = useState<'classe' | 'filiere' | null>(null);
+  const [itemToEdit, setItemToEdit] = useState<any>(null); // Stores the object being edited
+  
+  const [formData, setFormData] = useState({ nom: '', prenom: '', nom_classe: '', nom_filiere: '', id_filiere: '', id_classe: '', matricule: '', password: '', username: '', specialite: '' });
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
   const fetchData = async () => {
     try {
-      const [statsRes, classesRes, filieresRes] = await Promise.all([
+      const [statsRes, classesRes, filieresRes, profsRes] = await Promise.all([
         api.get('/stats/admin'),
         api.get('/etudiants/classes'),
         api.get('/etudiants/filieres'),
+        api.get('/etudiants/professeurs')
       ]);
       setStats(statsRes.data);
       setClasses(classesRes.data);
       setFilieres(filieresRes.data);
+      setProfesseurs(profsRes.data);
     } catch (e) {
       console.error('Erreur chargement données admin', e);
     } finally {
@@ -92,8 +115,12 @@ export default function AdminDashboard() {
   const handleVoirDetails = async (id: number) => {
     setLoadingDetail(true);
     try {
-      const res = await api.get(`/stats/classe/${id}`);
-      setSelectedClasse(res.data);
+      const [resClasse, resEtu] = await Promise.all([
+        api.get(`/stats/classe/${id}`),
+        api.get(`/etudiants/classe/${id}`)
+      ]);
+      setSelectedClasse(resClasse.data);
+      setEtudiantsList(resEtu.data);
     } catch (e) {
       console.error(e);
     } finally {
@@ -104,31 +131,118 @@ export default function AdminDashboard() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    setErrorMsg('');
     try {
       if (showAddModal === 'filiere') {
         await api.post('/etudiants/filieres', { nom_filiere: formData.nom_filiere });
       } else if (showAddModal === 'classe') {
         await api.post('/etudiants/classes', { nom_classe: formData.nom_classe, id_filiere: parseInt(formData.id_filiere) });
+      } else if (showAddModal === 'professeur') {
+        // Front-end valid checking although backend does it too
+        if (!/^[a-zA-Z\s\-]+$/.test(formData.nom) || !/^[a-zA-Z\s\-]+$/.test(formData.prenom)) {
+            setErrorMsg("Nom et prénom doivent uniquement contenir des lettres");
+            setSubmitting(false);
+            return;
+        }
+        await api.post('/etudiants/professeurs', {
+            nom: formData.nom,
+            prenom: formData.prenom,
+            specialite: formData.specialite,
+            password: formData.password
+        });
       } else if (showAddModal === 'etudiant') {
+        // Validation for Etudiant
+        if (!/^[a-zA-Z]{2}\d{3}$/.test(formData.matricule)) {
+            setErrorMsg("Format matricule invalide: 2 lettres suivies de 3 chiffres (ex: AB123)");
+            setSubmitting(false);
+            return;
+        }
+        if (!/^[a-zA-Z\s\-]+$/.test(formData.nom) || !/^[a-zA-Z\s\-]+$/.test(formData.prenom)) {
+            setErrorMsg("Nom et prénom doivent uniquement contenir des lettres");
+            setSubmitting(false);
+            return;
+        }
         await api.post('/etudiants/creer', { 
           nom: formData.nom, 
           prenom: formData.prenom, 
-          matricule: formData.matricule, 
-          id_classe: parseInt(formData.id_classe) 
+          matricule: formData.matricule.toUpperCase(), 
+          id_classe: parseInt(formData.id_classe),
+          password: formData.password,
+          username: formData.username
         });
       }
       setSuccessMsg('Création réussie !');
       setTimeout(() => {
         setShowAddModal(null);
         setSuccessMsg('');
-        setFormData({ nom: '', prenom: '', nom_classe: '', nom_filiere: '', id_filiere: '', id_classe: '', matricule: '' });
+        setFormData({ nom: '', prenom: '', nom_classe: '', nom_filiere: '', id_filiere: '', id_classe: '', matricule: '', password: '', username: '', specialite: '' });
         fetchData();
       }, 1500);
     } catch (err: any) {
-      alert(err.response?.data?.msg || 'Erreur lors de la création');
+      setErrorMsg(err.response?.data?.msg || 'Erreur lors de la création');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setErrorMsg('');
+    try {
+      if (showEditModal === 'filiere') {
+        await api.put(`/etudiants/filieres/${itemToEdit.id}`, { nom_filiere: formData.nom_filiere });
+      } else if (showEditModal === 'classe') {
+        await api.put(`/etudiants/classes/${itemToEdit.id}`, { nom_classe: formData.nom_classe, id_filiere: parseInt(formData.id_filiere) });
+      }
+      setSuccessMsg('Modification réussie !');
+      setTimeout(() => {
+        setShowEditModal(null);
+        setItemToEdit(null);
+        setSuccessMsg('');
+        setFormData({ nom: '', prenom: '', nom_classe: '', nom_filiere: '', id_filiere: '', id_classe: '', matricule: '', password: '', username: '', specialite: '' });
+        fetchData();
+      }, 1500);
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.msg || 'Erreur lors de la modification');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (type: string, id: number) => {
+    if (!window.confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
+    try {
+        if (type === 'filiere') await api.delete(`/etudiants/filieres/${id}`);
+        else if (type === 'classe') await api.delete(`/etudiants/classes/${id}`);
+        else if (type === 'professeur') await api.delete(`/etudiants/professeurs/${id}`);
+        else if (type === 'etudiant') await api.delete(`/etudiants/etudiants/${id}`);
+        
+        fetchData();
+        if (type === 'etudiant' && selectedClasse) {
+            handleVoirDetails(classes.find(c => c.nom === selectedClasse.classe)?.id || 0);
+        }
+    } catch (err: any) {
+        alert(err.response?.data?.msg || 'Erreur lors de la suppression');
+    }
+  };
+
+  const openEditModal = (type: 'filiere' | 'classe', item: any) => {
+    setItemToEdit(item);
+    setShowEditModal(type);
+    if (type === 'filiere') setFormData({ ...formData, nom_filiere: item.nom });
+    if (type === 'classe') setFormData({ ...formData, nom_classe: item.nom, id_filiere: item.filiere_id?.toString() || '' });
+    setErrorMsg('');
+    setSuccessMsg('');
+  };
+
+  const resetModals = () => {
+    setShowAddModal(null);
+    setShowEditModal(null);
+    setItemToEdit(null);
+    setFormData({ nom: '', prenom: '', nom_classe: '', nom_filiere: '', id_filiere: '', id_classe: '', matricule: '', password: '', username: '', specialite: '' });
+    setErrorMsg('');
+    setSuccessMsg('');
   };
 
   const filteredClasses = (stats?.moyennes_classes || []).filter(c => {
@@ -140,6 +254,12 @@ export default function AdminDashboard() {
   const filteredDisplayClasses = classes.filter(c =>
     c.nom.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.filiere.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredProfesseurs = professeurs.filter(p => 
+    p.nom.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    p.prenom.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    p.specialite.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   if (loading) {
@@ -159,7 +279,7 @@ export default function AdminDashboard() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Administration Overview</h1>
           <p className="text-slate-500 mt-1">Gérez toutes les entités académiques depuis un seul espace.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -207,6 +327,12 @@ export default function AdminDashboard() {
              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 hover:bg-indigo-700 shadow-sm transition-all shadow-indigo-200"
           >
             <Users className="w-4 h-4" /> + Étudiant
+          </button>
+          <button 
+             onClick={() => setShowAddModal('professeur')}
+             className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 hover:bg-violet-700 shadow-sm transition-all shadow-violet-200"
+          >
+            <GraduationCap className="w-4 h-4" /> + Professeur
           </button>
         </div>
       </header>
@@ -279,28 +405,30 @@ export default function AdminDashboard() {
 
       {/* Tabs */}
       <div className="flex justify-between items-center mb-6">
-        <div className="flex space-x-2 bg-slate-100/50 p-1.5 rounded-xl border border-slate-200/50">
-          <button onClick={() => setActiveTab('classes')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${activeTab === 'classes' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
+        <div className="flex space-x-2 bg-slate-100/50 p-1.5 rounded-xl border border-slate-200/50 overflow-x-auto">
+          <button onClick={() => setActiveTab('classes')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'classes' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
             <Layers className="w-4 h-4" /> Classes
           </button>
-          <button onClick={() => setActiveTab('filieres')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${activeTab === 'filieres' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
+          <button onClick={() => setActiveTab('filieres')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'filieres' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
             <BookOpen className="w-4 h-4" /> Filières
           </button>
-          <button onClick={() => setActiveTab('professors')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${activeTab === 'professors' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
+          <button onClick={() => setActiveTab('professors')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'professors' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
             <GraduationCap className="w-4 h-4" /> Professeurs
           </button>
         </div>
         
-        {activeTab === 'classes' && (
-          <button onClick={() => setShowAddModal('classe')} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors border border-indigo-100">
-            <Plus className="w-5 h-5" />
-          </button>
-        )}
-        {activeTab === 'filieres' && (
-          <button onClick={() => setShowAddModal('filiere')} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors border border-indigo-100">
-            <Plus className="w-5 h-5" />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {activeTab === 'classes' && (
+            <button onClick={() => setShowAddModal('classe')} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors border border-indigo-100 shadow-sm">
+              <Plus className="w-5 h-5" />
+            </button>
+          )}
+          {activeTab === 'filieres' && (
+            <button onClick={() => setShowAddModal('filiere')} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors border border-indigo-100 shadow-sm">
+              <Plus className="w-5 h-5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Table Content */}
@@ -328,16 +456,29 @@ export default function AdminDashboard() {
                     </div>
                   </td>
                   <td className="py-5 px-6 text-right">
-                    <button
-                      onClick={() => handleVoirDetails(c.id)}
-                      disabled={loadingDetail}
-                      className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50"
-                    >
-                      {loadingDetail ? '...' : <>Voir Détails <ChevronRight className="w-3.5 h-3.5" /></>}
-                    </button>
+                    <div className="flex justify-end gap-2 items-center">
+                        <button
+                          onClick={() => handleVoirDetails(c.id)}
+                          disabled={loadingDetail}
+                          className="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50"
+                        >
+                          {loadingDetail ? '...' : <>Détails</>}
+                        </button>
+                        <button onClick={() => openEditModal('classe', c)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all">
+                            <Edit className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDelete('classe', c.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    </div>
                   </td>
                 </tr>
               ))}
+              {filteredDisplayClasses.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="py-12 text-center text-slate-400 font-medium">Aucune classe trouvée.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
@@ -352,53 +493,96 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filieres.map((f) => (
+              {filieres.filter(f => f.nom.toLowerCase().includes(searchQuery.toLowerCase())).map((f) => (
                 <tr key={f.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="py-5 px-6 font-mono text-slate-400 text-sm">#{f.id}</td>
                   <td className="py-5 px-6 font-medium text-slate-900">{f.nom}</td>
-                  <td className="py-5 px-6 text-right">
-                    <button className="text-slate-400 hover:text-slate-600 text-sm font-medium">Modifier</button>
+                  <td className="py-5 px-6 text-right flex justify-end gap-2">
+                    <button onClick={() => openEditModal('filiere', f)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all">
+                        <Edit className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => handleDelete('filiere', f.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+                        <Trash2 className="w-4 h-4" />
+                    </button>
                   </td>
                 </tr>
               ))}
+              {filieres.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="py-12 text-center text-slate-400 font-medium">Aucune filière trouvée.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
 
         {activeTab === 'professors' && (
-          <div className="p-12 text-center text-slate-400">
-            <GraduationCap className="w-12 h-12 mx-auto mb-4 opacity-20" />
-            <p className="text-sm font-medium">Gestion des professeurs bientôt disponible.</p>
-          </div>
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-slate-50 border-b border-slate-100">
+              <tr>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Professeur</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Spécialité</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {filteredProfesseurs.map((p) => (
+                <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-5 px-6 font-medium text-slate-900">{p.nom} {p.prenom}</td>
+                  <td className="py-5 px-6 text-slate-600">
+                    <span className="bg-violet-50 text-violet-700 px-3 py-1 rounded-full text-sm border border-violet-100 font-medium">{p.specialite}</span>
+                  </td>
+                  <td className="py-5 px-6 text-right flex justify-end gap-2">
+                    <button onClick={() => handleDelete('professeur', p.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+                        <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {filteredProfesseurs.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="py-12 text-center text-slate-400 font-medium">Aucun professeur trouvé.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         )}
       </div>
 
-      {/* Creation Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowAddModal(null)}>
+      {/* Creation and Edit Modals */}
+      {(showAddModal || showEditModal) && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={resetModals}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                {showAddModal === 'filiere' ? 'Nouvelle Filière' : showAddModal === 'classe' ? 'Nouvelle Classe' : 'Nouvel Étudiant'}
+                {showAddModal === 'filiere' || showEditModal === 'filiere' ? (showAddModal ? '+ Nouvelle Filière' : 'Modifier Filière') : 
+                 showAddModal === 'classe' || showEditModal === 'classe' ? (showAddModal ? '+ Nouvelle Classe' : 'Modifier Classe') : 
+                 showAddModal === 'professeur' ? '+ Nouveau Professeur' : 
+                 '+ Nouvel Étudiant'}
               </h3>
-              <button onClick={() => setShowAddModal(null)} className="p-2 rounded-lg hover:bg-white hover:shadow-sm transition-all"><X className="w-5 h-5 text-slate-400" /></button>
+              <button onClick={resetModals} className="p-2 rounded-lg hover:bg-white hover:shadow-sm transition-all"><X className="w-5 h-5 text-slate-400" /></button>
             </div>
             
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
+            <form onSubmit={showEditModal ? handleEdit : handleCreate} className="p-6 space-y-4">
               {successMsg && (
                 <div className="p-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm font-medium flex items-center gap-2">
                   <Check className="w-4 h-4" /> {successMsg}
                 </div>
               )}
+              {errorMsg && (
+                <div className="p-3 bg-red-50 text-red-700 border border-red-200 rounded-xl text-sm font-medium flex gap-2">
+                  <X className="w-4 h-4 mt-0.5 shrink-0" /> {errorMsg}
+                </div>
+              )}
 
-              {showAddModal === 'filiere' && (
+              {(showAddModal === 'filiere' || showEditModal === 'filiere') && (
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom de la filière</label>
                   <input required value={formData.nom_filiere} onChange={e => setFormData({...formData, nom_filiere: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="ex: Génie Logiciel" />
                 </div>
               )}
 
-              {showAddModal === 'classe' && (
+              {(showAddModal === 'classe' || showEditModal === 'classe') && (
                 <>
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom de la classe</label>
@@ -418,17 +602,17 @@ export default function AdminDashboard() {
                 <>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom</label>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom (Lettres)</label>
                       <input required value={formData.nom} onChange={e => setFormData({...formData, nom: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Nom" />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Prénom</label>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Prénom (Lettres)</label>
                       <input required value={formData.prenom} onChange={e => setFormData({...formData, prenom: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Prénom" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Matricule</label>
-                    <input required value={formData.matricule} onChange={e => setFormData({...formData, matricule: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="ex: E001" />
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Matricule (ex: AB123)</label>
+                    <input required value={formData.matricule} onChange={e => setFormData({...formData, matricule: e.target.value.toUpperCase()})} maxLength={5} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none uppercase" placeholder="AB123" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Classe</label>
@@ -437,75 +621,154 @@ export default function AdminDashboard() {
                       {classes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.filiere})</option>)}
                     </select>
                   </div>
+                  <div className="pt-2 border-t border-slate-100">
+                    <p className="text-xs font-bold text-slate-500 uppercase mb-3">Identifiants de connexion</p>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Username (Login)</label>
+                            <input required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Login unique" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Mot de passe</label>
+                            <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Mot de passe" />
+                        </div>
+                    </div>
+                  </div>
                 </>
               )}
 
-              <button disabled={submitting} type="submit" className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-4 disabled:opacity-50">
-                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirmer la création'}
+              {showAddModal === 'professeur' && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom (Lettres)</label>
+                      <input required value={formData.nom} onChange={e => setFormData({...formData, nom: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none border-violet-100" placeholder="Nom" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Prénom (Lettres)</label>
+                      <input required value={formData.prenom} onChange={e => setFormData({...formData, prenom: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none border-violet-100" placeholder="Prénom" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Spécialité</label>
+                    <input required value={formData.specialite} onChange={e => setFormData({...formData, specialite: e.target.value})} className="w-full px-4 py-2.5 border border-violet-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none" placeholder="ex: Mathématiques" />
+                  </div>
+                  <div className="pt-2 border-t border-slate-100">
+                    <p className="text-xs font-bold text-slate-500 uppercase mb-3 text-violet-600">Identifiants de connexion</p>
+                    <div className="grid grid-cols-1 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Mot de passe provisoire</label>
+                            <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 border border-violet-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none" placeholder="Sera utilisé avec son nom et prénom pour se connecter" />
+                            <p className="text-[10px] text-slate-400 mt-1 ml-1 leading-tight">Note: Le professeur se connectera en utilisant son <b>Nom</b> et <b>Prénom</b>, plus ce mot de passe.</p>
+                        </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <button disabled={submitting} type="submit" className={`w-full py-3 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 mt-4 disabled:opacity-50 ${showAddModal === 'professeur' ? 'bg-violet-600 hover:bg-violet-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : (showEditModal ? 'Confirmer la modification' : 'Confirmer la création')}
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* View Detail Modal - Already there, keeping structure */}
+      {/* View Detail Modal */}
       {selectedClasse && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setSelectedClasse(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b border-slate-100 flex items-start justify-between sticky top-0 bg-white z-10">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => {setSelectedClasse(null); setEtudiantsList([]);}}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-100 flex items-start justify-between bg-white shrink-0 shadow-sm relative z-20">
               <div>
-                <h3 className="text-xl font-bold text-slate-900">{selectedClasse.classe}</h3>
-                <p className="text-sm text-indigo-600 font-medium mt-0.5 uppercase tracking-wider">{selectedClasse.filiere}</p>
+                <h3 className="text-2xl font-black text-slate-900">{selectedClasse.classe}</h3>
+                <p className="text-sm text-indigo-600 font-bold mt-1 uppercase tracking-wider bg-indigo-50 inline-block px-3 py-1 rounded-full">{selectedClasse.filiere}</p>
               </div>
-              <button onClick={() => setSelectedClasse(null)} className="p-2 rounded-lg hover:bg-slate-100 transition-colors">
-                <X className="w-5 h-5 text-slate-500" />
+              <button onClick={() => {setSelectedClasse(null); setEtudiantsList([]);}} className="p-2 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                <X className="w-6 h-6 text-slate-500" />
               </button>
             </div>
-            <div className="p-6 space-y-6">
-              <div className="grid grid-cols-3 gap-4">
+
+            <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 {[
-                  { label: 'Étudiants', value: selectedClasse.nb_etudiants },
-                  { label: 'Moyenne', value: `${selectedClasse.moyenne}/20` },
-                  { label: 'Taux Réussite', value: `${selectedClasse.taux_reussite}%` },
+                  { label: 'Étudiants', value: selectedClasse.nb_etudiants, color: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-100' },
+                  { label: 'Moyenne Globale', value: `${selectedClasse.moyenne}/20`, color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-100' },
+                  { label: 'Taux Réussite', value: `${selectedClasse.taux_reussite}%`, color: 'text-amber-700', bg: 'bg-amber-50 border-amber-100' },
                 ].map((kpi, i) => (
-                  <div key={i} className="bg-indigo-50/50 rounded-2xl p-4 border border-indigo-100 text-center">
-                    <p className="text-2xl font-bold text-indigo-700">{kpi.value}</p>
-                    <p className="text-xs text-slate-500 mt-1 font-bold uppercase tracking-tight">{kpi.label}</p>
+                  <div key={i} className={`rounded-2xl p-6 border text-center shadow-sm ${kpi.bg}`}>
+                    <p className={`text-4xl font-black tracking-tight ${kpi.color}`}>{kpi.value}</p>
+                    <p className="text-sm mt-2 font-bold uppercase tracking-widest text-slate-500 opacity-80">{kpi.label}</p>
                   </div>
                 ))}
               </div>
-              {selectedClasse.repartition_notes.some(r => r.count > 0) && (
-                <div>
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Répartition des Notes</h4>
-                  <ResponsiveContainer width="100%" height={160}>
-                    <BarChart data={selectedClasse.repartition_notes} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                      <XAxis dataKey="tranche" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Bar dataKey="count" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-              {selectedClasse.stats_par_matiere.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Performances par Matière</h4>
-                  <div className="space-y-4">
-                    {selectedClasse.stats_par_matiere.map((m, i) => (
-                      <div key={i} className="space-y-1.5">
-                        <div className="flex justify-between items-end">
-                          <p className="text-sm text-slate-700 font-bold">{m.matiere}</p>
-                          <span className="text-sm font-bold text-indigo-700">{m.moyenne}/20</span>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="space-y-8">
+                    {selectedClasse.repartition_notes.some(r => r.count > 0) && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <h4 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-6 flex items-center gap-2">
+                            <BarChart className="w-5 h-5 text-indigo-500" /> Répartition des Notes
+                        </h4>
+                        <ResponsiveContainer width="100%" height={200}>
+                            <BarChart data={selectedClasse.repartition_notes} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="tranche" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Bar dataKey="count" fill="#4f46e5" radius={[6, 6, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
                         </div>
-                        <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                          <div className="h-1.5 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full transition-all duration-1000" style={{ width: `${(m.moyenne / 20) * 100}%` }} />
+                    )}
+                    {selectedClasse.stats_par_matiere.length > 0 && (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <h4 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-6 flex items-center gap-2">
+                            <Award className="w-5 h-5 text-amber-500" /> Performances par Matière
+                        </h4>
+                        <div className="space-y-5">
+                            {selectedClasse.stats_par_matiere.map((m, i) => (
+                            <div key={i} className="space-y-2">
+                                <div className="flex justify-between items-end">
+                                <p className="text-sm text-slate-800 font-bold">{m.matiere}</p>
+                                <span className={`text-sm font-black ${m.moyenne >= 10 ? 'text-emerald-600' : 'text-rose-500'}`}>{m.moyenne}/20</span>
+                                </div>
+                                <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden shadow-inner flex">
+                                <div className={`h-full rounded-full transition-all duration-1000 ${m.moyenne >= 10 ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-rose-400 to-rose-500'}`} style={{ width: `${(m.moyenne / 20) * 100}%` }} />
+                                </div>
+                            </div>
+                            ))}
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                        </div>
+                    )}
                 </div>
-              )}
+
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col max-h-[600px]">
+                    <h4 className="text-sm font-bold text-slate-700 uppercase tracking-widest mb-6 flex items-center justify-between">
+                        <div className="flex items-center gap-2"><Users className="w-5 h-5 text-indigo-500" /> Liste des Étudiants</div>
+                    </h4>
+                    <div className="overflow-y-auto pr-2 -mr-2 space-y-3">
+                        {etudiantsList.map(etu => (
+                            <div key={etu.id} className="p-4 border border-slate-100 rounded-xl hover:border-indigo-100 hover:shadow-sm transition-all bg-slate-50/50 flex items-center gap-4 group">
+                                <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center shrink-0">
+                                    {etu.prenom.charAt(0)}{etu.nom.charAt(0)}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-bold text-slate-900 truncate">{etu.prenom} {etu.nom}</p>
+                                    <p className="font-mono text-xs text-slate-500">{etu.matricule}</p>
+                                </div>
+                                <button onClick={() => handleDelete('etudiant', etu.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all">
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ))}
+                        {etudiantsList.length === 0 && (
+                            <div className="text-center py-10 text-slate-400 font-medium text-sm">
+                                Aucun étudiant dans cette classe.
+                            </div>
+                        )}
+                    </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
