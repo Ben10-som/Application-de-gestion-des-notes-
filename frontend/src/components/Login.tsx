@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Sparkles, ArrowRight, Loader2, Eye, EyeOff, User } from 'lucide-react';
 import PixelPattern from './PixelPattern';
 import api from '../api';
 
@@ -8,8 +8,7 @@ interface LoginProps {
 }
 
 export default function Login({ onLogin }: LoginProps) {
-  const [nom, setNom] = useState('');
-  const [prenom, setPrenom] = useState('');
+  const [username, setUsername] = useState('');
   const [motDePasse, setMotDePasse] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -23,15 +22,13 @@ export default function Login({ onLogin }: LoginProps) {
 
     try {
       const response = await api.post('/auth/login', {
-        nom,
-        prenom,
+        username,
         mot_de_passe: motDePasse
       });
 
       const data = response.data;
       localStorage.setItem('access_token', data.access_token);
       
-      // role string maps slightly differently maybe: 'Etudiant' -> 'student', 'Professeur' -> 'professor', 'Admin' -> 'admin'
       const roleMap: Record<string, 'student' | 'professor' | 'admin'> = {
         'Etudiant': 'student',
         'Professeur': 'professor',
@@ -40,18 +37,17 @@ export default function Login({ onLogin }: LoginProps) {
 
       onLogin(roleMap[data.user.role]);
     } catch (err: any) {
-      setError(err.response?.data?.msg || 'Erreur de connexion');
+      setError(err.response?.data?.msg || 'Identifiants incorrects');
     } finally {
       setLoading(false);
     }
   };
 
   // Helper function to fill test credentials
-  const fillTestCredentials = (r: string) => {
-    setMotDePasse(r.toLowerCase() + '123'); // e.g. admin123, prof123, etu123
-    if (r === 'Admin') { setNom('Admin'); setPrenom('Super'); }
-    if (r === 'Prof') { setNom('Prof'); setPrenom('Test'); }
-    if (r === 'Etu') { setNom('Etu'); setPrenom('Test'); }
+  const fillTestCredentials = (type: 'Admin' | 'Prof' | 'Etu') => {
+    if (type === 'Admin') { setUsername('admin'); setMotDePasse('admin123'); }
+    if (type === 'Prof') { setUsername('jdupont'); setMotDePasse('prof123'); }
+    if (type === 'Etu') { setUsername('alice'); setMotDePasse('etu123'); }
   };
 
   return (
@@ -83,63 +79,52 @@ export default function Login({ onLogin }: LoginProps) {
           </span>
         </h1>
         <p className="text-xl text-slate-500 mb-8 max-w-2xl mx-auto">
-          Plateforme pour étudiants, professeurs et administrateurs.
+          Plateforme centralisée pour le suivi académique.
         </p>
 
-        <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-xl p-8 max-w-md mx-auto relative text-left">
-          <div className="absolute -top-3 -right-3 w-6 h-6 bg-indigo-500 rounded-sm rotate-12"></div>
-          <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-slate-800 rounded-sm -rotate-6"></div>
+        <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-3xl shadow-2xl p-8 max-w-md mx-auto relative text-left overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
           
-          <h2 className="text-2xl font-semibold mb-6 text-slate-900 text-center">Connexion</h2>
+          <h2 className="text-2xl font-bold mb-6 text-slate-900 flex items-center gap-2">
+            <User className="w-6 h-6 text-indigo-600" /> Connexion
+          </h2>
           
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-5">
             {error && (
-              <div className="p-3 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm">
+              <div className="p-4 bg-red-50 text-red-600 border border-red-200 rounded-2xl text-sm font-medium animate-in fade-in slide-in-from-top-2">
                 {error}
               </div>
             )}
             
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Nom</label>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Identifiant</label>
               <input 
                 type="text" 
                 required
-                value={nom}
-                onChange={e => setNom(e.target.value)}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="Votre nom"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Prénom</label>
-              <input 
-                type="text" 
-                required
-                value={prenom}
-                onChange={e => setPrenom(e.target.value)}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="Votre prénom"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-300"
+                placeholder="Ex: jdupont"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Mot de passe</label>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Mot de passe</label>
               <div className="relative">
                 <input 
                   type={showPassword ? "text" : "password"} 
                   required
                   value={motDePasse}
                   onChange={e => setMotDePasse(e.target.value)}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none pr-10"
+                  className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all pr-12 placeholder:text-slate-300"
                   placeholder="••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
@@ -147,20 +132,20 @@ export default function Login({ onLogin }: LoginProps) {
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-medium disabled:opacity-70 mt-6"
+              className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 hover:shadow-lg hover:shadow-indigo-200 transition-all font-bold disabled:opacity-70 mt-4 active:scale-95"
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Se Connecter'}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Accéder au tableau de bord'}
               {!loading && <ArrowRight className="w-5 h-5" />}
             </button>
           </form>
 
           {/* Quick test buttons */}
-          <div className="mt-8 pt-6 border-t border-slate-200">
-            <p className="text-xs text-slate-500 mb-3 text-center uppercase tracking-wider font-semibold">Générer Identifiants de test</p>
-            <div className="flex justify-center gap-2">
-               <button type="button" onClick={() => fillTestCredentials('Etu')} className="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-md text-slate-700 font-medium transition-colors">Étudiant</button>
-               <button type="button" onClick={() => fillTestCredentials('Prof')} className="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-md text-slate-700 font-medium transition-colors">Professeur</button>
-               <button type="button" onClick={() => fillTestCredentials('Admin')} className="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-md text-slate-700 font-medium transition-colors">Admin</button>
+          <div className="mt-10 pt-6 border-t border-slate-100">
+            <p className="text-[10px] text-slate-400 mb-4 text-center uppercase tracking-[0.2em] font-black">Accès rapide (Test)</p>
+            <div className="flex justify-center gap-3">
+               <button type="button" onClick={() => fillTestCredentials('Etu')} className="px-4 py-2 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-100 rounded-xl text-slate-600 text-xs font-bold transition-all">Étudiant</button>
+               <button type="button" onClick={() => fillTestCredentials('Prof')} className="px-4 py-2 bg-slate-50 hover:bg-violet-50 hover:text-violet-600 border border-slate-100 rounded-xl text-slate-600 text-xs font-bold transition-all">Professeur</button>
+               <button type="button" onClick={() => fillTestCredentials('Admin')} className="px-4 py-2 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-100 rounded-xl text-slate-600 text-xs font-bold transition-all">Admin</button>
             </div>
           </div>
         </div>

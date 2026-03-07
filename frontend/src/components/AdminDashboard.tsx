@@ -13,6 +13,9 @@ interface EtudiantInfo {
   matricule: string;
   nom: string;
   prenom: string;
+  username: string;
+  classe: string;
+  filiere: string;
 }
 interface ClasseInfo {
   id: number;
@@ -24,11 +27,18 @@ interface FiliereInfo {
   id: number;
   nom: string;
 }
+interface MatiereInfo {
+  id: number;
+  nom: string;
+  coef: number;
+}
 interface ProfesseurInfo {
   id: number;
+  username: string;
   nom: string;
   prenom: string;
   specialite: string;
+  enseignements: { classe: string; matiere: string }[];
 }
 interface AdminStats {
   nb_etudiants: number;
@@ -64,7 +74,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'classes' | 'professors' | 'filieres' | 'etudiants'>('classes');
+  const [activeTab, setActiveTab] = useState<'classes' | 'professors' | 'filieres' | 'etudiants' | 'matieres'>('classes');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterField, setFilterField] = useState('');
@@ -74,33 +84,47 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [classes, setClasses] = useState<ClasseInfo[]>([]);
   const [filieres, setFilieres] = useState<FiliereInfo[]>([]);
+  const [matieres, setMatieres] = useState<MatiereInfo[]>([]);
   const [professeurs, setProfesseurs] = useState<ProfesseurInfo[]>([]);
   const [etudiantsList, setEtudiantsList] = useState<EtudiantInfo[]>([]);
   
   const [loading, setLoading] = useState(true);
 
   // Modal States
-  const [showAddModal, setShowAddModal] = useState<'classe' | 'filiere' | 'etudiant' | 'professeur' | null>(null);
+  const [showAddModal, setShowAddModal] = useState<'classe' | 'filiere' | 'etudiant' | 'professeur' | 'matiere' | null>(null);
   const [showEditModal, setShowEditModal] = useState<'classe' | 'filiere' | null>(null);
   const [itemToEdit, setItemToEdit] = useState<any>(null); // Stores the object being edited
   
-  const [formData, setFormData] = useState({ nom: '', prenom: '', nom_classe: '', nom_filiere: '', id_filiere: '', id_classe: '', matricule: '', password: '', username: '', specialite: '' });
+  const [formData, setFormData] = useState({ 
+    nom: '', prenom: '', nom_classe: '', nom_filiere: '', nom_matiere: '', coef: '1', 
+    id_filiere: '', id_classe: '', matricule: '', password: '', username: '', specialite: '' 
+  });
+  const [selectedEnseignements, setSelectedEnseignements] = useState<{id_classe: string, id_matiere: string}[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
   const fetchData = async () => {
     try {
-      const [statsRes, classesRes, filieresRes, profsRes] = await Promise.all([
+      const [statsRes, classesRes, filieresRes, profsRes, matRes, etuRes] = await Promise.allSettled([
         api.get('/stats/admin'),
         api.get('/etudiants/classes'),
         api.get('/etudiants/filieres'),
-        api.get('/etudiants/professeurs')
+        api.get('/etudiants/professeurs'),
+        api.get('/etudiants/matieres'),
+        api.get('/etudiants/all'),
       ]);
-      setStats(statsRes.data);
-      setClasses(classesRes.data);
-      setFilieres(filieresRes.data);
-      setProfesseurs(profsRes.data);
+      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data);
+      if (classesRes.status === 'fulfilled') setClasses(classesRes.value.data);
+      if (filieresRes.status === 'fulfilled') setFilieres(filieresRes.value.data);
+      if (profsRes.status === 'fulfilled') setProfesseurs(profsRes.value.data);
+      if (matRes.status === 'fulfilled') setMatieres(matRes.value.data);
+      if (etuRes.status === 'fulfilled') setEtudiantsList(etuRes.value.data);
+
+      // Log errors for debugging
+      [statsRes, classesRes, filieresRes, profsRes, matRes, etuRes].forEach((r, i) => {
+        if (r.status === 'rejected') console.error(`Requête ${i} échouée:`, r.reason);
+      });
     } catch (e) {
       console.error('Erreur chargement données admin', e);
     } finally {
@@ -135,48 +159,46 @@ export default function AdminDashboard() {
     try {
       if (showAddModal === 'filiere') {
         await api.post('/etudiants/filieres', { nom_filiere: formData.nom_filiere });
+      } else if (showAddModal === 'matiere') {
+        await api.post('/etudiants/matieres', { nom_matiere: formData.nom_matiere, coef: parseInt(formData.coef) });
       } else if (showAddModal === 'classe') {
         await api.post('/etudiants/classes', { nom_classe: formData.nom_classe, id_filiere: parseInt(formData.id_filiere) });
       } else if (showAddModal === 'professeur') {
-        // Front-end valid checking although backend does it too
         if (!/^[a-zA-Z\s\-]+$/.test(formData.nom) || !/^[a-zA-Z\s\-]+$/.test(formData.prenom)) {
             setErrorMsg("Nom et prénom doivent uniquement contenir des lettres");
             setSubmitting(false);
             return;
         }
         await api.post('/etudiants/professeurs', {
+            username: formData.username,
             nom: formData.nom,
             prenom: formData.prenom,
             specialite: formData.specialite,
-            password: formData.password
+            password: formData.password,
+            enseignements: selectedEnseignements.map(es => ({ id_classe: parseInt(es.id_classe), id_matiere: parseInt(es.id_matiere) }))
         });
       } else if (showAddModal === 'etudiant') {
-        // Validation for Etudiant
         if (!/^[a-zA-Z]{2}\d{3}$/.test(formData.matricule)) {
             setErrorMsg("Format matricule invalide: 2 lettres suivies de 3 chiffres (ex: AB123)");
             setSubmitting(false);
             return;
         }
-        if (!/^[a-zA-Z\s\-]+$/.test(formData.nom) || !/^[a-zA-Z\s\-]+$/.test(formData.prenom)) {
-            setErrorMsg("Nom et prénom doivent uniquement contenir des lettres");
-            setSubmitting(false);
-            return;
-        }
         await api.post('/etudiants/creer', { 
+          username: formData.username,
           nom: formData.nom, 
           prenom: formData.prenom, 
           matricule: formData.matricule.toUpperCase(), 
           id_classe: parseInt(formData.id_classe),
-          password: formData.password,
-          username: formData.username
+          password: formData.password
         });
       }
       setSuccessMsg('Création réussie !');
+      // Rafraîchir immédiatement les données
+      await fetchData();
+      setSearchQuery('');
+      
       setTimeout(() => {
-        setShowAddModal(null);
-        setSuccessMsg('');
-        setFormData({ nom: '', prenom: '', nom_classe: '', nom_filiere: '', id_filiere: '', id_classe: '', matricule: '', password: '', username: '', specialite: '' });
-        fetchData();
+        resetModals();
       }, 1500);
     } catch (err: any) {
       setErrorMsg(err.response?.data?.msg || 'Erreur lors de la création');
@@ -217,6 +239,7 @@ export default function AdminDashboard() {
         else if (type === 'classe') await api.delete(`/etudiants/classes/${id}`);
         else if (type === 'professeur') await api.delete(`/etudiants/professeurs/${id}`);
         else if (type === 'etudiant') await api.delete(`/etudiants/etudiants/${id}`);
+        else if (type === 'matiere') await api.delete(`/etudiants/matieres/${id}`);
         
         fetchData();
         if (type === 'etudiant' && selectedClasse) {
@@ -243,6 +266,12 @@ export default function AdminDashboard() {
     setFormData({ nom: '', prenom: '', nom_classe: '', nom_filiere: '', id_filiere: '', id_classe: '', matricule: '', password: '', username: '', specialite: '' });
     setErrorMsg('');
     setSuccessMsg('');
+  };
+
+  const handleTabChange = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    setSearchQuery('');
+    setFilterField('');
   };
 
   const filteredClasses = (stats?.moyennes_classes || []).filter(c => {
@@ -334,6 +363,12 @@ export default function AdminDashboard() {
           >
             <GraduationCap className="w-4 h-4" /> + Professeur
           </button>
+          <button 
+             onClick={() => setShowAddModal('matiere')}
+             className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 hover:bg-emerald-700 shadow-sm transition-all shadow-emerald-200"
+          >
+            <BookOpen className="w-4 h-4" /> + Matière
+          </button>
         </div>
       </header>
 
@@ -406,14 +441,20 @@ export default function AdminDashboard() {
       {/* Tabs */}
       <div className="flex justify-between items-center mb-6">
         <div className="flex space-x-2 bg-slate-100/50 p-1.5 rounded-xl border border-slate-200/50 overflow-x-auto">
-          <button onClick={() => setActiveTab('classes')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'classes' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
+          <button onClick={() => handleTabChange('classes')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'classes' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
             <Layers className="w-4 h-4" /> Classes
           </button>
-          <button onClick={() => setActiveTab('filieres')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'filieres' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
+          <button onClick={() => handleTabChange('filieres')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'filieres' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
             <BookOpen className="w-4 h-4" /> Filières
           </button>
-          <button onClick={() => setActiveTab('professors')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'professors' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
+          <button onClick={() => handleTabChange('matieres')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'matieres' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
+            <Award className="w-4 h-4" /> Matières
+          </button>
+          <button onClick={() => handleTabChange('professors')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'professors' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
             <GraduationCap className="w-4 h-4" /> Professeurs
+          </button>
+          <button onClick={() => handleTabChange('etudiants')} className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'etudiants' ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
+            <Users className="w-4 h-4" /> Étudiants
           </button>
         </div>
         
@@ -425,6 +466,11 @@ export default function AdminDashboard() {
           )}
           {activeTab === 'filieres' && (
             <button onClick={() => setShowAddModal('filiere')} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors border border-indigo-100 shadow-sm">
+              <Plus className="w-5 h-5" />
+            </button>
+          )}
+          {activeTab === 'matieres' && (
+            <button onClick={() => setShowAddModal('matiere')} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors border border-indigo-100 shadow-sm">
               <Plus className="w-5 h-5" />
             </button>
           )}
@@ -516,21 +562,63 @@ export default function AdminDashboard() {
           </table>
         )}
 
+        {activeTab === 'matieres' && (
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-slate-50 border-b border-slate-100">
+              <tr>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Matière</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Coefficient</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {matieres.filter(m => m.nom.toLowerCase().includes(searchQuery.toLowerCase())).map((m) => (
+                <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-5 px-6 font-medium text-slate-900">{m.nom}</td>
+                  <td className="py-5 px-6 text-slate-600 font-mono">{m.coef}</td>
+                  <td className="py-5 px-6 text-right flex justify-end gap-2">
+                    <button onClick={() => handleDelete('matiere', m.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+                        <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {matieres.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="py-12 text-center text-slate-400 font-medium">Aucune matière trouvée.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+
         {activeTab === 'professors' && (
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
                 <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Professeur</th>
-                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Spécialité</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Identifiant</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Enseignements</th>
                 <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredProfesseurs.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-5 px-6 font-medium text-slate-900">{p.nom} {p.prenom}</td>
-                  <td className="py-5 px-6 text-slate-600">
-                    <span className="bg-violet-50 text-violet-700 px-3 py-1 rounded-full text-sm border border-violet-100 font-medium">{p.specialite}</span>
+                  <td className="py-5 px-6">
+                    <div className="font-medium text-slate-900">{p.nom} {p.prenom}</div>
+                    <div className="text-xs text-slate-400">{p.specialite}</div>
+                  </td>
+                  <td className="py-5 px-6 font-mono text-xs text-slate-500">{p.username}</td>
+                  <td className="py-5 px-6">
+                    <div className="flex flex-wrap gap-1">
+                      {p.enseignements?.map((e, idx) => (
+                        <span key={idx} className="bg-violet-50 text-violet-700 px-2 py-0.5 rounded text-[10px] border border-violet-100 whitespace-nowrap">
+                          {e.matiere} ({e.classe})
+                        </span>
+                      ))}
+                      {(!p.enseignements || p.enseignements.length === 0) && <span className="text-slate-300 text-xs">Aucun</span>}
+                    </div>
                   </td>
                   <td className="py-5 px-6 text-right flex justify-end gap-2">
                     <button onClick={() => handleDelete('professeur', p.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
@@ -541,7 +629,46 @@ export default function AdminDashboard() {
               ))}
               {filteredProfesseurs.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="py-12 text-center text-slate-400 font-medium">Aucun professeur trouvé.</td>
+                  <td colSpan={4} className="py-12 text-center text-slate-400 font-medium">Aucun professeur trouvé.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+
+        {activeTab === 'etudiants' && (
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-slate-50 border-b border-slate-100">
+              <tr>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Matricule</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Nom complet</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Username</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Classe</th>
+                <th className="py-4 px-6 font-semibold text-slate-400 text-xs uppercase tracking-wider">Filière</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {etudiantsList.filter(e =>
+                e.nom.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                e.prenom.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                e.matricule.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                (e.classe || '').toLowerCase().includes(searchQuery.toLowerCase())
+              ).map((e) => (
+                <tr key={e.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-5 px-6 font-mono text-sm text-slate-500">{e.matricule}</td>
+                  <td className="py-5 px-6 font-medium text-slate-900">{e.nom} {e.prenom}</td>
+                  <td className="py-5 px-6 font-mono text-xs text-slate-400">{e.username}</td>
+                  <td className="py-5 px-6 text-slate-600">
+                    <span className="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-sm border border-slate-200 font-medium">{e.classe || '—'}</span>
+                  </td>
+                  <td className="py-5 px-6 text-slate-600">
+                    <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm border border-indigo-100 font-medium">{e.filiere || '—'}</span>
+                  </td>
+                </tr>
+              ))}
+              {etudiantsList.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-12 text-center text-slate-400 font-medium">Aucun étudiant trouvé.</td>
                 </tr>
               )}
             </tbody>
@@ -556,6 +683,7 @@ export default function AdminDashboard() {
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                 {showAddModal === 'filiere' || showEditModal === 'filiere' ? (showAddModal ? '+ Nouvelle Filière' : 'Modifier Filière') : 
+                 showAddModal === 'matiere' ? '+ Nouvelle Matière' :
                  showAddModal === 'classe' || showEditModal === 'classe' ? (showAddModal ? '+ Nouvelle Classe' : 'Modifier Classe') : 
                  showAddModal === 'professeur' ? '+ Nouveau Professeur' : 
                  '+ Nouvel Étudiant'}
@@ -602,17 +730,27 @@ export default function AdminDashboard() {
                 <>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom (Lettres)</label>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom</label>
                       <input required value={formData.nom} onChange={e => setFormData({...formData, nom: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Nom" />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Prénom (Lettres)</label>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Prénom</label>
                       <input required value={formData.prenom} onChange={e => setFormData({...formData, prenom: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Prénom" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Matricule (ex: AB123)</label>
-                    <input required value={formData.matricule} onChange={e => setFormData({...formData, matricule: e.target.value.toUpperCase()})} maxLength={5} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none uppercase" placeholder="AB123" />
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Identifiant (Login)</label>
+                    <input required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Login unique" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Matricule</label>
+                      <input required value={formData.matricule} onChange={e => setFormData({...formData, matricule: e.target.value.toUpperCase()})} maxLength={5} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none uppercase" placeholder="AB123" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Mot de passe</label>
+                      <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Mot de passe" />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Classe</label>
@@ -621,31 +759,31 @@ export default function AdminDashboard() {
                       {classes.map(c => <option key={c.id} value={c.id}>{c.nom} ({c.filiere})</option>)}
                     </select>
                   </div>
-                  <div className="pt-2 border-t border-slate-100">
-                    <p className="text-xs font-bold text-slate-500 uppercase mb-3">Identifiants de connexion</p>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Username (Login)</label>
-                            <input required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Login unique" />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Mot de passe</label>
-                            <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Mot de passe" />
-                        </div>
-                    </div>
+                </>
+              )}
+
+              {showAddModal === 'matiere' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom de la matière</label>
+                    <input required value={formData.nom_matiere} onChange={e => setFormData({...formData, nom_matiere: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="ex: Algorithmique" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Coefficient</label>
+                    <input required type="number" min="1" max="10" value={formData.coef} onChange={e => setFormData({...formData, coef: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" />
                   </div>
                 </>
               )}
 
               {showAddModal === 'professeur' && (
-                <>
+                <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom (Lettres)</label>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Nom</label>
                       <input required value={formData.nom} onChange={e => setFormData({...formData, nom: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none border-violet-100" placeholder="Nom" />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Prénom (Lettres)</label>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Prénom</label>
                       <input required value={formData.prenom} onChange={e => setFormData({...formData, prenom: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none border-violet-100" placeholder="Prénom" />
                     </div>
                   </div>
@@ -653,17 +791,54 @@ export default function AdminDashboard() {
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Spécialité</label>
                     <input required value={formData.specialite} onChange={e => setFormData({...formData, specialite: e.target.value})} className="w-full px-4 py-2.5 border border-violet-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none" placeholder="ex: Mathématiques" />
                   </div>
-                  <div className="pt-2 border-t border-slate-100">
-                    <p className="text-xs font-bold text-slate-500 uppercase mb-3 text-violet-600">Identifiants de connexion</p>
-                    <div className="grid grid-cols-1 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Mot de passe provisoire</label>
-                            <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 border border-violet-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none" placeholder="Sera utilisé avec son nom et prénom pour se connecter" />
-                            <p className="text-[10px] text-slate-400 mt-1 ml-1 leading-tight">Note: Le professeur se connectera en utilisant son <b>Nom</b> et <b>Prénom</b>, plus ce mot de passe.</p>
-                        </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Identifiant (Login)</label>
+                      <input required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none" placeholder="Login unique" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Mot de passe</label>
+                      <input required type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 border border-violet-200 rounded-xl focus:ring-2 focus:ring-violet-500 outline-none" placeholder="Mot de passe" />
                     </div>
                   </div>
-                </>
+                  
+                  <div className="pt-4 border-t border-slate-100">
+                    <p className="text-xs font-bold text-slate-500 uppercase mb-3 flex items-center justify-between">
+                      Affectation des cours
+                      <button type="button" onClick={() => setSelectedEnseignements([...selectedEnseignements, {id_classe: '', id_matiere: ''}])} className="text-violet-600 hover:text-violet-800 text-[10px] font-bold">+ Ajouter un cours</button>
+                    </p>
+                    <div className="space-y-3">
+                      {selectedEnseignements.map((ens, idx) => (
+                        <div key={idx} className="flex gap-2 items-end bg-slate-50 p-3 rounded-xl border border-slate-200 relative">
+                          <button type="button" onClick={() => setSelectedEnseignements(selectedEnseignements.filter((_, i) => i !== idx))} className="absolute -top-2 -right-2 bg-white border border-slate-200 rounded-full p-1 text-slate-400 hover:text-red-500 shadow-sm"><X className="w-3 h-3" /></button>
+                          <div className="flex-1">
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Classe</label>
+                            <select required value={ens.id_classe} onChange={e => {
+                                const newEns = [...selectedEnseignements];
+                                newEns[idx].id_classe = e.target.value;
+                                setSelectedEnseignements(newEns);
+                            }} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg outline-none bg-white">
+                              <option value="">Classe</option>
+                              {classes.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                            </select>
+                          </div>
+                          <div className="flex-1">
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Matière</label>
+                            <select required value={ens.id_matiere} onChange={e => {
+                                const newEns = [...selectedEnseignements];
+                                newEns[idx].id_matiere = e.target.value;
+                                setSelectedEnseignements(newEns);
+                            }} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg outline-none bg-white">
+                              <option value="">Matière</option>
+                              {matieres.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      ))}
+                      {selectedEnseignements.length === 0 && <p className="text-center text-xs text-slate-400 italic py-2">Aucun cours affecté pour le moment.</p>}
+                    </div>
+                  </div>
+                </div>
               )}
 
               <button disabled={submitting} type="submit" className={`w-full py-3 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 mt-4 disabled:opacity-50 ${showAddModal === 'professeur' ? 'bg-violet-600 hover:bg-violet-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>

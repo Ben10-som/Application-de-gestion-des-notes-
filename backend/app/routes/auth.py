@@ -50,10 +50,10 @@ def register():
 def login():
     """
     Authentifie un utilisateur et retourne un Token JWT.
-    Payload: { nom, prenom, mot_de_passe }
+    Payload: { username, mot_de_passe }
     """
     data = request.get_json()
-    user = Utilisateur.query.filter_by(nom=data.get('nom'), prenom=data.get('prenom')).first()
+    user = Utilisateur.query.filter_by(username=data.get('username')).first()
 
     if user and user.check_password(data.get('mot_de_passe')):
         access_token = create_access_token(
@@ -64,6 +64,7 @@ def login():
             "access_token": access_token,
             "user": {
                 "id": user.id_user,
+                "username": user.username,
                 "nom": user.nom,
                 "prenom": user.prenom,
                 "role": user.role

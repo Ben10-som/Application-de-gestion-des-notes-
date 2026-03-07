@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
-from app.models import db, Filiere, Classe, Etudiant, Utilisateur, Professeur, Enseignement
+from app.models import db, Filiere, Classe, Etudiant, Utilisateur, Professeur, Enseignement, Matiere
 import re
 
 etudiants_bp = Blueprint('etudiants', __name__)
@@ -118,6 +118,24 @@ def modifier_classe(id):
         db.session.commit()
         return jsonify({"msg": "Classe supprimée avec succès"}), 200
 
+# --- LISTE DE TOUS LES ÉTUDIANTS (Admin) ---
+@etudiants_bp.route('/all', methods=['GET'])
+@jwt_required()
+def get_all_etudiants():
+    claims = get_jwt()
+    if claims.get('role') != 'Admin':
+        return jsonify({"msg": "Accès non autorisé"}), 403
+    etudiants = Etudiant.query.all()
+    return jsonify([{
+        "id": e.id_etudiant,
+        "matricule": e.matricule,
+        "nom": e.utilisateur.nom,
+        "prenom": e.utilisateur.prenom,
+        "username": e.utilisateur.username,
+        "classe": e.classe.nom_classe if e.classe else None,
+        "filiere": e.classe.filiere.nom_filiere if e.classe and e.classe.filiere else None,
+    } for e in etudiants]), 200
+
 # --- LISTE DES ÉTUDIANTS PAR CLASSE ---
 @etudiants_bp.route('/classe/<int:id_classe>', methods=['GET'])
 @jwt_required()
@@ -130,6 +148,29 @@ def get_etudiants_par_classe(id_classe):
         "prenom": e.utilisateur.prenom
     } for e in etudiants]), 200
 
+# --- GESTION DES MATIÈRES ---
+@etudiants_bp.route('/matieres', methods=['GET', 'POST'])
+@jwt_required()
+def handle_matieres():
+    claims = get_jwt()
+    if request.method == 'POST':
+        if claims.get('role') != 'Admin':
+            return jsonify({"msg": "Action réservée à l'administrateur"}), 403
+        data = request.get_json()
+        nom = data.get('nom_matiere')
+        coef = data.get('coef', 1)
+        
+        if Matiere.query.filter_by(nom_matiere=nom).first():
+            return jsonify({"msg": "Cette matière existe déjà"}), 400
+            
+        new_matiere = Matiere(nom_matiere=nom, coef=coef)
+        db.session.add(new_matiere)
+        db.session.commit()
+        return jsonify({"msg": "Matière créée"}), 201
+    
+    matieres = Matiere.query.all()
+    return jsonify([{"id": m.id_matiere, "nom": m.nom_matiere, "coef": m.coef} for m in matieres]), 200
+
 # --- CRÉATION ÉTUDIANT ---
 @etudiants_bp.route('/creer', methods=['POST'])
 @jwt_required()
@@ -139,68 +180,41 @@ def creer_etudiant():
         return jsonify({"msg": "Action réservée à l'administrateur"}), 403
     
     data = request.get_json()
+    username = data.get('username')
     nom = data.get('nom')
     prenom = data.get('prenom')
     matricule = data.get('matricule')
     id_classe = data.get('id_classe')
     password = data.get('password')
-    username = data.get('username')
 
-    if not all([nom, prenom, matricule, id_classe, password, username]):
+    if not all([username, nom, prenom, matricule, id_classe, password]):
         return jsonify({"msg": "Données manquantes"}), 400
 
-    if not re.match(r'^[a-zA-Z]{2}\d{3}$', matricule):
-        return jsonify({"msg": "Format de matricule invalide. Ex: AB123"}), 400
-        
-    if not re.match(r'^[a-zA-Z\s\-]+$', nom) or not re.match(r'^[a-zA-Z\s\-]+$', prenom):
-        return jsonify({"msg": "Le nom et le prénom ne doivent contenir que des lettres."}), 400
+    if Utilisateur.query.filter_by(username=username).first():
+        return jsonify({"msg": "Cet identifiant (username) est déjà utilisé"}), 400
 
     if Etudiant.query.filter_by(matricule=matricule).first():
         return jsonify({"msg": "Ce matricule existe déjà"}), 400
 
-    if Utilisateur.query.filter_by(nom=username, role='Etudiant').first(): # we use nom field for username
-        return jsonify({"msg": "Ce nom d'utilisateur existe déjà"}), 400
+    try:
+        # Create User
+        new_user = Utilisateur(username=username, nom=nom, prenom=prenom, role='Etudiant')
+        new_user.set_password(password)
+        db.session.add(new_user)
+        db.session.flush()
 
-    # We store the login "username" in the "nom" field of Utilisateur? 
-    # Wait, the DB models Utilisateur has `nom` and `prenom`. 
-    # If the app expects user to log in with `nom` and `prenom`, we should enforce unique nom+prenom
-    if Utilisateur.query.filter_by(nom=nom, prenom=prenom).first():
-        return jsonify({"msg": "Un utilisateur avec ce nom et prénom existe déjà"}), 400
-
-    # Create User
-    new_user = Utilisateur(nom=nom, prenom=prenom, role='Etudiant')
-    new_user.set_password(password)
-    db.session.add(new_user)
-    db.session.flush()
-
-    # Create Etudiant
-    new_etu = Etudiant(
-        matricule=matricule,
-        classe_id_classe=id_classe,
-        utilisateur_id_user=new_user.id_user
-    )
-    db.session.add(new_etu)
-    db.session.commit()
-
-    return jsonify({"msg": "Étudiant créé avec succès"}), 201
-
-@etudiants_bp.route('/etudiants/<int:id>', methods=['DELETE'])
-@jwt_required()
-def supprimer_etudiant(id):
-    claims = get_jwt()
-    if claims.get('role') != 'Admin':
-        return jsonify({"msg": "Action réservée à l'administrateur"}), 403
-        
-    etudiant = Etudiant.query.get(id)
-    if not etudiant:
-        return jsonify({"msg": "Étudiant non trouvé"}), 404
-        
-    utilisateur = etudiant.utilisateur
-    db.session.delete(etudiant)
-    if utilisateur:
-        db.session.delete(utilisateur)
-    db.session.commit()
-    return jsonify({"msg": "Étudiant supprimé avec succès"}), 200
+        # Create Etudiant
+        new_etu = Etudiant(
+            matricule=matricule,
+            classe_id_classe=id_classe,
+            utilisateur_id_user=new_user.id_user
+        )
+        db.session.add(new_etu)
+        db.session.commit()
+        return jsonify({"msg": "Étudiant créé avec succès"}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"msg": f"Erreur lors de la création : {str(e)}"}), 500
 
 # --- GESTION DES PROFESSEURS ---
 @etudiants_bp.route('/professeurs', methods=['GET', 'POST'])
@@ -213,41 +227,77 @@ def handle_professeurs():
             return jsonify({"msg": "Action réservée à l'administrateur"}), 403
             
         data = request.get_json()
+        username = data.get('username')
         nom = data.get('nom')
         prenom = data.get('prenom')
         specialite = data.get('specialite')
         password = data.get('password')
+        enseignements = data.get('enseignements', []) # Liste de {id_classe, id_matiere}
         
-        if not all([nom, prenom, specialite, password]):
+        if not all([username, nom, prenom, specialite, password]):
             return jsonify({"msg": "Données manquantes"}), 400
             
-        if not re.match(r'^[a-zA-Z\s\-]+$', nom) or not re.match(r'^[a-zA-Z\s\-]+$', prenom):
-            return jsonify({"msg": "Le nom et le prénom ne doivent contenir que des lettres."}), 400
+        if Utilisateur.query.filter_by(username=username).first():
+            return jsonify({"msg": "Cet identifiant (username) est déjà utilisé"}), 400
 
-        if Utilisateur.query.filter_by(nom=nom, prenom=prenom).first():
-            return jsonify({"msg": "Ce professeur (nom et prénom) existe déjà"}), 400
+        try:
+            new_user = Utilisateur(username=username, nom=nom, prenom=prenom, role='Professeur')
+            new_user.set_password(password)
+            db.session.add(new_user)
+            db.session.flush()
             
-        new_user = Utilisateur(nom=nom, prenom=prenom, role='Professeur')
-        new_user.set_password(password)
-        db.session.add(new_user)
-        db.session.flush()
-        
-        new_prof = Professeur(
-            specialite=specialite,
-            utilisateur_id_user=new_user.id_user
-        )
-        db.session.add(new_prof)
-        db.session.commit()
-        
-        return jsonify({"msg": "Professeur créé"}), 201
+            new_prof = Professeur(
+                specialite=specialite,
+                utilisateur_id_user=new_user.id_user
+            )
+            db.session.add(new_prof)
+            db.session.flush()
+
+            # Affectation des matières/classes
+            for ens in enseignements:
+                id_classe = ens.get('id_classe')
+                id_matiere = ens.get('id_matiere')
+                if id_classe and id_matiere:
+                    # Vérifier si cet enseignement existe déjà (doublon)
+                    existing = Enseignement.query.filter_by(
+                        classe_id_classe=id_classe,
+                        matiere_id_matiere=id_matiere
+                    ).first()
+                    if existing:
+                        db.session.rollback()
+                        return jsonify({"msg": f"L'enseignement (Classe ID {id_classe}, Matière ID {id_matiere}) est déjà attribué à un autre professeur."}), 400
+                        
+                    nouveau_cours = Enseignement(
+                        professeur_id_professeur=new_prof.id_professeur,
+                        classe_id_classe=id_classe,
+                        matiere_id_matiere=id_matiere
+                    )
+                    db.session.add(nouveau_cours)
+            
+            db.session.commit()
+            return jsonify({"msg": "Professeur créé et matières affectées avec succès"}), 201
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"msg": f"Erreur lors de la création : {str(e)}"}), 500
 
     professeurs = Professeur.query.all()
-    return jsonify([{
-        "id": p.id_professeur,
-        "nom": p.utilisateur.nom,
-        "prenom": p.utilisateur.prenom,
-        "specialite": p.specialite
-    } for p in professeurs]), 200
+    result = []
+    for p in professeurs:
+        ens_list = []
+        for ens in p.enseignements:
+            ens_list.append({
+                "classe": ens.classe.nom_classe,
+                "matiere": ens.matiere.nom_matiere
+            })
+        result.append({
+            "id": p.id_professeur,
+            "username": p.utilisateur.username,
+            "nom": p.utilisateur.nom,
+            "prenom": p.utilisateur.prenom,
+            "specialite": p.specialite,
+            "enseignements": ens_list
+        })
+    return jsonify(result), 200
 
 @etudiants_bp.route('/professeurs/<int:id>', methods=['DELETE'])
 @jwt_required()
