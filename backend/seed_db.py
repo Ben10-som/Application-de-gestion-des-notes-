@@ -221,16 +221,6 @@ def seed_database():
             db.session.add(e)
             db.session.flush()
 
-            # Add random notes for students in GL 1-A and GL 1-B
-            if cls_nom in ["GL 1-A", "GL 1-B"]:
-                for ens in enseignements[:2]:
-                    n = Note(
-                        valeur_note=round(random.uniform(8, 18), 2),
-                        etudiant_id_etudiant=e.id_etudiant,
-                        idencryption=ens.idencryption
-                    )
-                    db.session.add(n)
-
         db.session.commit()
         print("Database seeded successfully with 100 students from database2.xlsx!")
 
