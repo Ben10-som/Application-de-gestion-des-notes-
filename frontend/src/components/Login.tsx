@@ -12,7 +12,6 @@ export default function Login({ onLogin }: LoginProps) {
   const [motDePasse, setMotDePasse] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-
   const [error, setError] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -20,44 +19,6 @@ export default function Login({ onLogin }: LoginProps) {
     setLoading(true);
     setError('');
 
-    try {
-      const response = await api.post('/auth/login', {
-        username,
-        mot_de_passe: motDePasse
-      });
-
-      const data = response.data;
-      localStorage.setItem('access_token', data.access_token);
-      
-      const roleMap: Record<string, 'student' | 'professor' | 'admin'> = {
-        'Etudiant': 'student',
-        'Professeur': 'professor',
-        'Admin': 'admin'
-      };
-
-      onLogin(roleMap[data.user.role]);
-    } catch (err: any) {
-      setError(err.response?.data?.msg || 'Identifiants incorrects');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Helper function to fill test credentials and auto-login
-  const fillTestCredentials = async (type: 'Admin' | 'Prof' | 'Etu') => {
-    setLoading(true);
-    setError('');
-    
-    let username = '';
-    let motDePasse = '';
-    
-    if (type === 'Admin') { username = 'admin'; motDePasse = 'admin123'; }
-    if (type === 'Prof') { username = 'jdupont'; motDePasse = 'prof123'; }
-    if (type === 'Etu') { username = 'alice'; motDePasse = 'etu123'; }
-    
-    setUsername(username);
-    setMotDePasse(motDePasse);
-    
     try {
       const response = await api.post('/auth/login', {
         username,
@@ -169,16 +130,6 @@ export default function Login({ onLogin }: LoginProps) {
               {!loading && <ArrowRight className="w-5 h-5" />}
             </button>
           </form>
-
-          {/* Quick test buttons */}
-          <div className="mt-10 pt-6 border-t border-slate-100">
-            <p className="text-[10px] text-slate-400 mb-4 text-center uppercase tracking-[0.2em] font-black">Accès rapide (Test)</p>
-            <div className="flex justify-center gap-3">
-               <button type="button" onClick={() => fillTestCredentials('Etu')} disabled={loading} className="px-4 py-2 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-100 rounded-xl text-slate-600 text-xs font-bold transition-all disabled:opacity-50">Étudiant</button>
-               <button type="button" onClick={() => fillTestCredentials('Prof')} disabled={loading} className="px-4 py-2 bg-slate-50 hover:bg-violet-50 hover:text-violet-600 border border-slate-100 rounded-xl text-slate-600 text-xs font-bold transition-all disabled:opacity-50">Professeur</button>
-               <button type="button" onClick={() => fillTestCredentials('Admin')} disabled={loading} className="px-4 py-2 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-100 rounded-xl text-slate-600 text-xs font-bold transition-all disabled:opacity-50">Admin</button>
-            </div>
-          </div>
         </div>
       </div>
     </div>
