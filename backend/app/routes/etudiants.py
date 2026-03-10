@@ -5,6 +5,123 @@ import re
 
 etudiants_bp = Blueprint('etudiants', __name__)
 
+# --- SEED DATABASE (pour initialiser Neon) ---
+@etudiants_bp.route('/seed', methods=['POST'])
+def seed_database():
+    """Route pour initialiser la base de données sur Neon"""
+    from app.models import Note
+    import random
+    
+    # Nettoyage complet
+    db.drop_all()
+    db.create_all()
+    
+    # Filières
+    f_info = Filiere(nom_filiere="Génie Informatique")
+    f_mgt = Filiere(nom_filiere="Management & Business")
+    db.session.add_all([f_info, f_mgt])
+    db.session.flush()
+    
+    # Classes
+    classes_data = [
+        ("GL 1-A", f_info.id_filiere), ("GL 1-B", f_info.id_filiere),
+        ("GL 2-A", f_info.id_filiere), ("GL 2-B", f_info.id_filiere),
+        ("GL 3-A", f_info.id_filiere), ("GL 3-B", f_info.id_filiere),
+        ("MGT 1-A", f_mgt.id_filiere), ("MGT 1-B", f_mgt.id_filiere),
+        ("MGT 2-A", f_mgt.id_filiere), ("MGT 2-B", f_mgt.id_filiere),
+    ]
+    classes = {}
+    for nom, fid in classes_data:
+        c = Classe(nom_classe=nom, filiere_id_filiere=fid)
+        db.session.add(c)
+        db.session.flush()
+        classes[nom] = c
+    
+    # Matières
+    matieres_noms = [
+        "Python", "Algorithmique", "Base de Données", "SQL", "Réseaux", "Sécurité",
+        "Développement Web", "JavaScript", "Mathématiques", "Statistiques", "Économie", "Gestion",
+        "Java", "POO", "Systèmes d'Exploitation", "Linux", "Analyse de Données", "Big Data",
+        "Comptabilité", "Finance", "Génie Logiciel", "UML", "Marketing", "Management",
+        "Structures de Données", "Algo Avancée", "IA", "Machine Learning", "Probabilités",
+        "Développement Mobile", "Android", "Admin Réseaux", "Cloud Computing",
+        "BD Avancées", "Data Warehousing", "Python Avancé", "Data Science", "Cybersécurité", "Cryptographie"
+    ]
+    matieres = {}
+    for nom in matieres_noms:
+        m = Matiere(nom_matiere=nom, coef=random.randint(2, 4))
+        db.session.add(m)
+        db.session.flush()
+        matieres[nom] = m
+    
+    # Admins
+    u1 = Utilisateur(username="admin", nom="ADMIN", prenom="Système", role="Admin")
+    u1.set_password("admin123")
+    db.session.add(u1)
+    db.session.flush()
+    db.session.add(Admin(utilisateur_id_user=u1.id_user))
+    
+    u2 = Utilisateur(username="admin_acad", nom="ADMIN", prenom="Académique", role="Admin")
+    u2.set_password("admin456")
+    db.session.add(u2)
+    db.session.flush()
+    db.session.add(Admin(utilisateur_id_user=u2.id_user))
+    
+    # Professeurs
+    profs_data = [
+        ("adiop", "DIOP", "Amadou"), ("fndiaye", "NDIAYE", "Fatou"),
+        ("msarr", "SARR", "Moussa"), ("aba", "BA", "Aissatou"),
+        ("ifall", "FALL", "Ibrahima"), ("msow", "SOW", "Mariama"),
+        ("agueye", "GUEYE", "Abdou"), ("cka", "KA", "Cheikh"),
+        ("oseck", "SECK", "Ousmane"), ("ktoure", "TOURE", "Khadija"),
+    ]
+    profs = []
+    for username, nom, prenom in profs_data:
+        u = Utilisateur(username=username, nom=nom, prenom=prenom, role="Professeur")
+        u.set_password("prof123")
+        db.session.add(u)
+        db.session.flush()
+        p = Professur(specialite="Informatique", utilisateur_id_user=u.id_user)
+        db.session.add(p)
+        db.session.flush()
+        profs.append(p)
+    
+    # Enseignements
+    enseignements = []
+    for i, p in enumerate(profs[:5]):
+        for cls in [classes["GL 1-A"], classes["GL 1-B"]]:
+            matiere = list(matieres.values())[i]
+            ens = Enseignement(professeur_id_professeur=p.id_professeur, classe_id_classe=cls.id_classe, matiere_id_matiere=matiere.id_matiere)
+            db.session.add(ens)
+            db.session.flush()
+            enseignements.append(ens)
+    
+    # Étudiants
+    etuds = [
+        ("alice", "DIALLO", "Alice", "AD001", "GL 1-A"),
+        ("bob", "NDIAYE", "Bob", "BN002", "GL 1-A"),
+        ("carol", "FALL", "Carol", "CF003", "GL 1-A"),
+        ("daouda", "SECK", "Daouda", "DS004", "GL 1-A"),
+        ("eve", "MBAYE", "Eve", "EM005", "GL 1-A"),
+        ("khadija", "TOURE", "Khadija", "KT011", "GL 1-B"),
+        ("lamine", "BALDE", "Lamine", "LB012", "GL 1-B"),
+        ("mariama", "BA", "Mariama", "MB013", "GL 1-B"),
+    ]
+    for username, nom, prenom, matricule, cls_nom in etuds:
+        u = Utilisateur(username=username, nom=nom, prenom=prenom, role="Etudiant")
+        u.set_password("etu123")
+        db.session.add(u)
+        db.session.flush()
+        e = Etudiant(matricule=matricule, classe_id_classe=classes[cls_nom].id_classe, utilisateur_id_user=u.id_user)
+        db.session.add(e)
+        db.session.flush()
+        for ens in enseignements[:2]:
+            n = Note(valeur_note=round(random.uniform(8, 18), 2), etudiant_id_etudiant=e.id_etudiant, idencryption=ens.idencryption)
+            db.session.add(n)
+    
+    db.session.commit()
+    return jsonify({"message": "Base initialisée !"}), 200
+
 # --- GESTION DES FILIÈRES ---
 @etudiants_bp.route('/filieres', methods=['GET', 'POST'])
 @jwt_required()
