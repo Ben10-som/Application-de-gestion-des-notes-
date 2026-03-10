@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import Utilisateur, Etudiant, Professeur, Admin, Classe, Filiere, Matiere, Enseignement, Note
+from app.models import Utilisateur, Etudiant,Professeur, Admin, Classe, Filiere, Matiere, Enseignement, Note
 import random
 
 app = create_app()
@@ -94,7 +94,7 @@ def seed_database():
             profs.append(p)
 
         # --- ENSEIGNEMENTS ---
-        # Create some sample teachings (for reference, professors will add notes through UI)
+        enseignements = []
         for i, p in enumerate(profs[:5]):
             for cls_key in ["GL 1-A", "GL 1-B", "GL 2-A"]:
                 matiere = list(matieres.values())[i % len(matieres)]
@@ -104,8 +104,8 @@ def seed_database():
                     matiere_id_matiere=matiere.id_matiere
                 )
                 db.session.add(ens)
-        
-        db.session.flush()
+                db.session.flush()
+                enseignements.append(ens)
 
         # --- ÉTUDIANTS (100 students from database2.xlsx) ---
         etudiants_data = [
@@ -218,10 +218,9 @@ def seed_database():
             db.session.flush()
             e = Etudiant(matricule=matricule, classe_id_classe=classes[cls_nom].id_classe, utilisateur_id_user=u.id_user)
             db.session.add(e)
-            db.session.flush()
 
         db.session.commit()
-        print("Database seeded successfully with 100 students from database2.xlsx!")
+        print("Database seeded successfully with 100 students!")
 
 if __name__ == "__main__":
     seed_database()
