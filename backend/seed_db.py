@@ -94,8 +94,7 @@ def seed_database():
             profs.append(p)
 
         # --- ENSEIGNEMENTS ---
-        enseignements = []
-        # Create some sample teachings
+        # Create some sample teachings (for reference, professors will add notes through UI)
         for i, p in enumerate(profs[:5]):
             for cls_key in ["GL 1-A", "GL 1-B", "GL 2-A"]:
                 matiere = list(matieres.values())[i % len(matieres)]
@@ -105,8 +104,8 @@ def seed_database():
                     matiere_id_matiere=matiere.id_matiere
                 )
                 db.session.add(ens)
-                db.session.flush()
-                enseignements.append(ens)
+        
+        db.session.flush()
 
         # --- ÉTUDIANTS (100 students from database2.xlsx) ---
         etudiants_data = [
